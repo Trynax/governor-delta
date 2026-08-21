@@ -272,6 +272,27 @@ contract BaseGovernorTest is Test {
         require(endState == GovernorStorageV1.ProposalState.Executed);
     }
 
+    function testVetoVoteIsFinal() public {
+        /* ------PRIMARY-STAKEHOLDER------- */
+        vm.startPrank(STAKEHOLDER_PRIMARY);
+        approveAndLock(STAKEHOLDER_MAJOR);
+        uint proposalId = pushMockProposal(1);
+
+        vm.warp(block.timestamp + DEFAULT_VOTING_DELAY + 1);
+        governor.castVote(proposalId, 1, "");
+
+        vm.warp(block.timestamp + DEFAULT_VOTING_PERIOD);
+        governor.queue(proposalId);
+        governor.veto(proposalId);
+        governor.castVetoVote(proposalId, 1, "");
+
+        // Veto votes cannot be revised
+        vm.expectRevert();
+        governor.castVetoVote(proposalId, 0, "");
+        vm.stopPrank();
+        /* -------------------------------- */
+    }
+
     function testVetoedProposal() public {
         /* ------PRIMARY-STAKEHOLDER------- */
         vm.startPrank(STAKEHOLDER_PRIMARY);
@@ -353,6 +374,7 @@ contract BaseGovernorTest is Test {
         vm.warp(block.timestamp + DEFAULT_VOTING_DELAY + 1);
 
         governor.castVote(proposalId, 1, "");
+        vm.stopPrank();
         /* -------------------------------- */
 
         // Attempt invalid signature
@@ -365,6 +387,18 @@ contract BaseGovernorTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(voterPk, digest);
         governor.castVoteBySig(proposalId, 1, v, r, s);
+
+        /* ------KEYHOLDER-STAKEHOLDER------- */
+        vm.prank(voter);
+        governor.castVote(proposalId, 0, "");
+        /* -------------------------------- */
+
+        // A signed vote can revise a later direct vote
+        governor.castVoteBySig(proposalId, 1, v, r, s);
+
+        (uint againstVotes, uint forVotes,) = governor.getTally(proposalId);
+        require(againstVotes == 0);
+        require(forVotes == STAKEHOLDER_MAJOR * 2);
     }
 
     function testVetoVoteBySig() public {
@@ -559,6 +593,15 @@ contract BaseGovernorTest is Test {
         calldatas[0] = "";
 
         return governor.propose(tier, targets, values, signatures, calldatas, "");
+    }
+
+    function commitDelegation(uint proposalId, address delegator, address delegatee) internal {
+        (, uint expiry) = governor.delegations(delegator);
+        commitDelegation(proposalId, delegator, delegatee, expiry);
+    }
+
+    function commitDelegation(uint proposalId, address delegator, address delegatee, uint expiry) internal {
+        governor.commitVote(proposalId, abi.encode(delegator, delegatee, expiry));
     }
 
     function governorDomainSeparator() internal view returns (bytes32) {
