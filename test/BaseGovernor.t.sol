@@ -379,26 +379,39 @@ contract BaseGovernorTest is Test {
 
         // Attempt invalid signature
         vm.expectRevert();
-        governor.castVoteBySig(proposalId, 1, 0, bytes32(0), bytes32(0));
+        governor.castVoteBySig(proposalId, 1, 0, 0, bytes32(0), bytes32(0));
         //////////////////////////////////////
         bytes32 domainHash = governor.DOMAIN_TYPEHASH();
         bytes32 domainSeparator = keccak256(abi.encode(domainHash, keccak256(bytes(governor.name())), block.chainid, address(governor)));
-        bytes32 structHash = keccak256(abi.encode(governor.VOTE_TYPEHASH(), proposalId, 1));
+        bytes32 structHash = keccak256(abi.encode(governor.VOTE_TYPEHASH(), proposalId, 1, 0));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(voterPk, digest);
-        governor.castVoteBySig(proposalId, 1, v, r, s);
+        governor.castVoteBySig(proposalId, 1, 0, v, r, s);
 
         /* ------KEYHOLDER-STAKEHOLDER------- */
         vm.prank(voter);
         governor.castVote(proposalId, 0, "");
         /* -------------------------------- */
 
-        // A signed vote can revise a later direct vote
-        governor.castVoteBySig(proposalId, 1, v, r, s);
+        (,, uint castVersion) = governor.getAllowance(proposalId, voter);
+        require(castVersion == 2);
+
+        // A stale signature cannot overwrite a later direct vote
+        vm.expectRevert();
+        governor.castVoteBySig(proposalId, 1, 0, v, r, s);
+
+        // A signature using the current version can revise the vote
+        bytes32 revisedStructHash = keccak256(abi.encode(governor.VOTE_TYPEHASH(), proposalId, 1, castVersion));
+        bytes32 revisedDigest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, revisedStructHash));
+        (uint8 revisedV, bytes32 revisedR, bytes32 revisedS) = vm.sign(voterPk, revisedDigest);
+        governor.castVoteBySig(proposalId, 1, castVersion, revisedV, revisedR, revisedS);
 
         (uint againstVotes, uint forVotes,) = governor.getTally(proposalId);
         require(againstVotes == 0);
         require(forVotes == STAKEHOLDER_MAJOR * 2);
+
+        (,, uint finalCastVersion) = governor.getAllowance(proposalId, voter);
+        require(finalCastVersion == 3);
     }
 
     function testVetoVoteBySig() public {

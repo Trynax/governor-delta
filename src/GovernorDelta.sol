@@ -56,7 +56,7 @@ contract GovernorDelta is GovernorStorageV3 {
     uint public constant MAX_PROPOSAL_OPERATIONS = 10; 
 
     /// @notice The EIP-712 typehash for the vote struct used by the contract
-    bytes32 public constant VOTE_TYPEHASH = keccak256("Vote(uint256 proposalId,uint8 support)");
+    bytes32 public constant VOTE_TYPEHASH = keccak256("Vote(uint256 proposalId,uint8 support,uint256 castVersion)");
 
     /// @notice The EIP-712 typehash for the veto struct used by the contract
     bytes32 public constant VETO_TYPEHASH = keccak256("VetoVote(uint256 proposalId,uint8 support)");
@@ -210,6 +210,17 @@ contract GovernorDelta is GovernorStorageV3 {
     function getRecords(uint proposalId, address voter) public view returns (Record[3] memory) {
         ProposalV2 storage p = proposals[proposalId];
         return [p.primary.records[voter], p.virtualized.records[voter], p.veto.records[voter]]; 
+    }
+
+    /**
+      * @notice Gets a delegatee's allowance for a proposal
+      * @param proposalId The id of the proposal
+      * @param delegatee The address receiving delegated voting power
+      * @return Allowance votes, weight and current cast version
+    **/
+    function getAllowance(uint proposalId, address delegatee) public view returns (uint, uint, uint) {
+        Voucher storage allowance = proposals[proposalId].allowances[delegatee];
+        return (allowance.votes, allowance.weight, allowance.castVersion);
     }
 
     /**
@@ -533,16 +544,18 @@ contract GovernorDelta is GovernorStorageV3 {
       * @dev Accepts EIP-712 signatures for voting, enabling cold storage and gasless voting via relayers
       * @param proposalId The id of the proposal to vote on
       * @param support The support value for the vote. 0=against, 1=for, 2=abstain
+      * @param castVersion The current number of votes cast by the signatory on the proposal
       * @param v The recovery byte of the signature
       * @param r Output of the ECDSA signature pair
       * @param s Output of the ECDSA signature pair
     **/
-    function castVoteBySig(uint proposalId, uint8 support, uint8 v, bytes32 r, bytes32 s) external {
+    function castVoteBySig(uint proposalId, uint8 support, uint castVersion, uint8 v, bytes32 r, bytes32 s) external {
         require(state(proposalId) == ProposalState.Active, "GovernorDelta::castVote: voting is closed");
-        bytes32 structHash = keccak256(abi.encode(VOTE_TYPEHASH, proposalId, support));
+        bytes32 structHash = keccak256(abi.encode(VOTE_TYPEHASH, proposalId, support, castVersion));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
         address signatory = ecrecover(digest, v, r, s);
         require(signatory != address(0), "GovernorDelta::castVoteBySig: invalid signature");
+        require(castVersion == proposals[proposalId].allowances[signatory].castVersion, "GovernorDelta::castVoteBySig: invalid cast version");
         uint votes = _logVote(signatory, proposalId, support, false);
 
         emit VoteCast(signatory, proposalId, support, votes, "");
@@ -632,13 +645,14 @@ contract GovernorDelta is GovernorStorageV3 {
             Record storage receipt = proposal.primary.records[delegator];
             Record storage delegateeReceipt = proposal.primary.records[delegatee];
             require(record.hasVoted && record.delegatee == delegatee, "GovernorDelta::batchAttestVotes: delegation uncommitted");
-            require(delegateeReceipt.hasVoted, "GovernorDelta::batchAttestVotes: delegatee vote missing");
+            require(delegateeReceipt.hasVoted && delegateeReceipt.delegatee == address(0), "GovernorDelta::batchAttestVotes: delegatee vote missing");
             require(!receipt.hasVoted, "GovernorDelta::batchAttestVotes: delegation already attested");
             _addVotes(proposal.primary, delegateeReceipt.support, record.votes, record.weight);
             receipt.hasVoted = true;
             receipt.support = delegateeReceipt.support;
             receipt.votes = record.votes;
             receipt.weight = record.weight;
+            receipt.delegatee = delegatee;
 
             emit VoteAttested(proposalId, delegator, delegatee, record.votes, keccak256(delegateIds[i]));
         }

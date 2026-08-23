@@ -208,6 +208,45 @@ contract VirtualGovernorTest is BaseGovernorTest {
         require(finalForVotes == priorForVotes + delegatorRecords[1].votes);
     }
 
+    function testAttestationRequiresDirectDelegateeVote() public {
+        uint delegationExpiry = block.timestamp + 7 days;
+
+        vm.prank(DELEGATOR_PRIMARY);
+        governor.delegate(DELEGATEE_PRIMARY, delegationExpiry);
+
+        vm.prank(DELEGATOR_SECONDARY);
+        governor.delegate(DELEGATOR_PRIMARY, delegationExpiry);
+
+        vm.prank(DELEGATEE_PRIMARY);
+        uint proposalId = pushMockProposal(0);
+        vm.warp(block.timestamp + DEFAULT_VOTING_DELAY + 1);
+
+        commitDelegation(proposalId, DELEGATOR_PRIMARY, DELEGATEE_PRIMARY, delegationExpiry);
+        commitDelegation(proposalId, DELEGATOR_SECONDARY, DELEGATOR_PRIMARY, delegationExpiry);
+
+        vm.prank(DELEGATEE_PRIMARY);
+        governor.castVote(proposalId, 1, "");
+        vm.prank(STAKEHOLDER_ALPHA);
+        governor.castVote(proposalId, 1, "");
+        vm.prank(STAKEHOLDER_BETA);
+        governor.castVote(proposalId, 1, "");
+
+        vm.warp(block.timestamp + DEFAULT_VOTING_PERIOD + 1);
+        governor.queue(proposalId);
+        vm.warp(block.timestamp + DEFAULT_TIMELOCK_DELAY + 1);
+
+        bytes[] memory delegateIds = new bytes[](1);
+        delegateIds[0] = abi.encode(DELEGATOR_PRIMARY, DELEGATEE_PRIMARY, delegationExpiry);
+        governor.batchAttestVotes(proposalId, delegateIds);
+
+        GovernorStorageV3.Record[3] memory records = governor.getRecords(proposalId, DELEGATOR_PRIMARY);
+        require(records[0].delegatee == DELEGATEE_PRIMARY);
+
+        delegateIds[0] = abi.encode(DELEGATOR_SECONDARY, DELEGATOR_PRIMARY, delegationExpiry);
+        vm.expectRevert();
+        governor.batchAttestVotes(proposalId, delegateIds);
+    }
+
     function testVirtualDelegationRedirect() public {
         uint primaryExpiry = block.timestamp + 7 days;
 
