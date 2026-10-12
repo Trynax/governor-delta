@@ -3,6 +3,8 @@ pragma solidity ^0.8.10;
 import "@interfaces/IProposalGuard.sol";
 import "@interfaces/IGovernorDelta.sol";
 
+// @TODO transition to bytes4 indexes 
+
 contract GuardStorage {
 
     /// @notice Selector blacklist addition event 
@@ -13,7 +15,7 @@ contract GuardStorage {
 
 }
 
-contract FunctionSelectorGuard is GuardStorage, IProposalGuard {
+contract SelectorGuard is GuardStorage, IProposalGuard {
 
     /// @notice Governor target context address
     address public governor;
