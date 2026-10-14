@@ -1,5 +1,5 @@
 # Selector Guard
-Arbitrary permissions for proposal top level calls, indexed by function selector signatures, best used in conjunction with the [WhitelistGuard](). 
+Arbitrary permissioning for proposal top level calls, indexed by function selector signatures, best used in conjunction with the [WhitelistGuard](../WhitelistGuard). 
 
 ## Behaviour 
 Iterates through proposal actions before execution, verifying if any signatures are "blacklisted" and in the case of reverts.  

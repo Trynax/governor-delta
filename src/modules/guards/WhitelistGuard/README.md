@@ -1,5 +1,5 @@
 # Selector Guard
-Arbitrary permissions for proposal target calls, indexed by address, best used in conjunction with the [SelectorGuard](). 
+Arbitrary permissions for proposal target calls, indexed by address, best used in conjunction with the [SelectorGuard](../SelectorGuard). 
 
 ## Behaviour 
 Iterates through proposal targets before execution, verifying that call targets are "whitelisted" and if not reverts.  

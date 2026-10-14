@@ -2,17 +2,17 @@
 An EVM (Ethereum virtual machine) modular governance system, successor to [Governor Bravo](https://github.com/compound-finance/compound-protocol/blob/master/contracts/Governance/GovernorBravoDelegateG2.sol).
 
 ### Voting Modules
-Arbitrary voting model implementations, enabling extensibility for alternative coordination mechansims without restructuring.
+Arbitrary voting model implementations, enabling extensibility for alternative coordination mechanisms without restructuring.
 
 #### Strategies
-* [`WeightedVotingStrategy`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/strategies/WeightedVotingStrategy.sol): Traditional shareholder voting (one share, one vote)
-* [`TenureVotingStrategy`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/strategies/TenureVotingStrategy.sol)*: Linear time-weighted voting (loyalty shares)
-* [`PolycentricVotingStrategy`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/strategies/PolycentricVotingStrategy.sol)*: Path-dependent voting ([paper](https://focal.org/polycentric-voting.pdf))
+* [`WeightedVotingStrategy`](src/modules/voting/WeightedVotingStrategy): Traditional shareholder voting (one share, one vote)
+* [`TenureVotingStrategy`](src/modules/voting/TenureVotingStrategy)*: Linear time-weighted voting (loyalty shares)
+* [`PolycentricVotingStrategy`](src/modules/voting/PolycentricVotingStrategy)*: Path-dependent voting ([paper](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7546438))
 
 _`*` - Virtualised strategies ([learn more](./SPEC.md#virtualisation))_
 
 #### Extensions
-Feature enhancements that strategy standards can integrate for example the [bootstrapped extension](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/strategies/derivatives/BootstrappedTenureVotingStrategy.sol) enables issuers to specify preconfigured time weights for set addresses with apprioriate expiration dates, allowing the engineering of power dynamics explicitly for virtualised strategies.
+Feature enhancements that strategy standards can integrate for example the [bootstrapped extension](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/voting/derivatives/EnduedTenureVotingStrategy.sol) enables issuers to specify preconfigured time weights for set addresses with apprioriate expiration dates, allowing the engineering of power dynamics explicitly for virtualised strategies.
 
 ---
 
@@ -50,11 +50,11 @@ All tiers are configurable and adjustable through governance, by default **all t
 Delta provides an open framework for defining an organisation's policies, achieved through a module system for execution invariant checks using preimage check before proposal execution and a snapshot after. If a policy (guard) is failed to be met, proposal execution will be reverted. This provides robust and explict safeguards that was previously lackluster in subsequent governance standards. Some examples being; restricting the amount of assets that can be transferred, contracts which can be called and even the functions permitted in any proposal. 
 
 #### Modules
-* [`TransferGuard`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/guards/TransferGuard.sol): Index by asset, restrict transfers that exceed limits and budgets  
-* [`WhitelistGuard`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/guards/WhitelistGuard.sol): Indexed by address, permit calls to select targets
-* [`FunctionSelectorGuard`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/guards/FunctionSelectorGuard.sol): Restrict function types that can be executed 
+* [`TransferGuard`](src/modules/guards/TransferGuard): Index by asset, restrict transfers that exceed limits and budgets  
+* [`WhitelistGuard`](src/modules/guards/WhitelistGuard): Indexed by address, permit calls to select targets
+* [`SelectorGuard`](src/modules/guards/SelectorGuard): Restrict function types that can be executed 
 
-Guards work complimentary to the graduated proposal framework, where they are configurable by tier, with more strict safeguards assigned to lower tiers and more lenient for higher tiers. Consider that on deployment, **only the [`StakingGuard`](https://github.com/focaldotorg/governor-delta/blob/main/src/modules/guards/StakingGuard.sol) is configured**.
+Guards work complimentary to the graduated proposal framework, where they are configurable by tier, with more strict safeguards assigned to lower tiers and more lenient for higher tiers. Consider that on deployment, **only the [`StakingGuard`](src/modules/guards/StakingGuard) is configured**.
 
 ---
 

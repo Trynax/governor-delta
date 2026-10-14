@@ -1,7 +1,6 @@
 # Governor Delta
 
 ## Changelog
-
 * **Vote Weighting**: Redacted the immutable weighting for arbitary, defined by [Voting Modules](#modules) enabling diverse voting models
 * **Omit Whitelisting**: Redacted in place of the [Guard System](#guards), enabling arbitary permissions, constraints and checks 
 * **Configuration Mutability**: 
@@ -10,27 +9,28 @@ Bravo predefined all parameters of governance at deployment time, which fundamen
 * **Arbitary Call Context**: Bravo's timelock faced an issue in its prior proposal call flow, that caused native account balance stored in the timelock to become unspendable, this is addressed by the introduction of [Relay Actions](#relay-actions)
 * **Deprecated Storage Slots**: Many of the prior storage domain objects and mappings, were labelled as redundant but are not overwritten to not void storage for existing instances
 * **Native Delegation**: Opt-in delegation support, delegate by direct assignment with management via expiration and revocation
-* **Vote Revision**: Prior votes were final given subject of a snapshot system, transient voting periods enabled by [Graduated Proposals](#graduated-proposals) need vote amendement to not inhibit stakeholders seeking to excercise additional inventory
-* **Vote Accounting**: With the introduction arbitary vote weighting, the tally may need assortment in [Primary Votes]() and [Virtual Votes]()
-* **Proxy Votes**: Delegated votes can be cast by proxy or keeper under when cast as [Virtual Votes][]
-* **Vote Attestation**: Given if a module implementation is [Virtualised](), delegated votes must undergo [Vote Attestation]() to be marked as valid to be included in the [Tally]()  
+* **Vote Revision**: Prior votes were final given subject of a snapshot system, transient voting periods enabled by [Graduated Proposals](#proposal-system) need vote amendement to not inhibit stakeholders seeking to excercise additional inventory
+* **Vote Accounting**: With the introduction arbitary vote weighting, the tally may need assortment in [Primary Votes]() and [Virtual Votes](#virtual-votes)
+* **Vote by Proxy**: Delegated votes can be cast by proxy or keeper under when cast as [Virtual Votes](#virtual-votes)
+* **Vote Attestation**: Given if a module implementation is [Virtualised](#virtualisation), delegated votes must undergo [Vote Attestation](#vote-attestation) to be marked as valid to be included in the [Tally](#tally)  
+
 ## Modules
 
 ### Voting
 --------
-Defined as a standard interface under [`IVotingStrategy`]().
+Defined as a standard interface under [`IVotingStrategy`](src/interfaces/IVotingStrategy.sol).
 
 #### Virtualisation
 
-A module or strategy is labelled as virtualised if it is time-weighted, clarifying that the tally should be seperated by [Primary Votes]() and [Virtual Votes]().
+A module or strategy is labelled as virtualised if it is time-weighted.
 
 #### Extensions 
 
-Extensions are standardised feature integrations for voting modules, that either add or modify underlying strategies. The [`EnduedTenureVotingStrategy`]() is a example of this, giving issuers the extensbility to set predefined time multiplier values for select addresses within a bounded period until expiration.
+Extensions are standardised feature integrations for voting modules, that either add or modify underlying strategies. The [`EnduedTenureVotingStrategy`](src/modules/voting/derivatives/EnduedTenureVotingStrategy) is a example of this, giving issuers the extensbility to set predefined time multiplier values for select addresses within a bounded period until expiration.
 
 ### Guards
 --------
-The guard system is a set of arbitary conditions before and after proposal execution, following the standard interface of [`IProposalGuard`](), 
+The guard system is a set of arbitary conditions before and after proposal execution, following the standard interface of [`IProposalGuard`](src/interfaces/IProposalGuard), 
 
 <p align="center">
   <img width="700" alt="Screenshot 2026-10-05 at 14 49 37" src="https://github.com/user-attachments/assets/757cb347-9a4d-4ed6-bae3-ca4c479727ed" /> 
@@ -38,7 +38,7 @@ The guard system is a set of arbitary conditions before and after proposal execu
   <em>Figure 1: Guard Process</em>
 </p>
 
-A state preimage or general constraints occur in `record()` with then further conditionals or invariant checks proceeding in `compare()`. Given the module structure, guards can access proposal calldata, declare formal roles and even restrict asset flows as exhibited with [`TransferGuard`](). 
+A state preimage or general constraints occur in `record()` with then further conditionals or invariant checks proceeding in `compare()`. Given the module structure, guards can access proposal calldata, declare formal roles and even restrict asset flows as exhibited with [`TransferGuard`](src/modules/guards/TransferGuard). 
 
 ## Configuration
 
@@ -51,7 +51,7 @@ The definitive currency of authority, defined at deployment. It represents the d
 
 **Graduated Proposals**  
 - **Tiers**: The assigned index n for proposal configuration n
-- **Guards**: Proposal n guards, by default [`StakingGuard`]() is assigned to all tiers [³](#notes). 
+- **Guards**: Proposal n guards, by default [`StakingGuard`](src/modules/guards/StakingGuard) is assigned to all tiers [³](#notes). 
 - **Duration**: The assigned voting period for proposal tier n
 - **Quota**: Minimum canonical token weight required to propose proposal rank n
 - **Quorum**: Minimum canonical token weight required to reach consensus for proposal n
@@ -84,11 +84,11 @@ Realised votes cast by stakeholders, where voting power is derived and excercise
 
 ### Virtual Votes
 
-Virtual power is defined as votes cast by delegation or by proxy. In the context of [Virtualised](#virtualisation) voting strategies, delegated votes are assorted as apart of the [Pretally](). Although in the case of non-virtualised modules they are classified as primary votes and are automatically submitted to the [Tally](). 
+Virtual power is defined as votes cast by delegation or by proxy. In the context of virtualised voting strategies, delegated votes are assorted as apart of the [Pretally](#pretally). Although in the case of non-virtualised modules they are classified as primary votes and are automatically submitted to the [Tally](). 
 
 ### Vote Prediction
 
-Pre-determines the voting power for a participant at proposal execution rather than when casting, designed for for time-dependent strategies such as [`TenureVotingStrategy`](). Using `predict()` gives participants and client interfaces an accurate projection of influence at proposal `endTime` rather than at the moment of casting.
+Pre-determines the voting power for a participant at proposal execution rather than when casting, designed for for time-dependent strategies such as [`TenureVotingStrategy`](src/modules/voting/TenureVotingStrategy). Using `predict()` gives participants and client interfaces an accurate projection of influence at proposal `endTime` rather than at the moment of casting.
 
 ### Delegation
 ----------
@@ -96,17 +96,16 @@ Pre-determines the voting power for a participant at proposal execution rather t
 Delegation by default is disabled, and can be activated for any deployment through `activateDelegation`, although it is irreversible one way state change by design.
 
 **Identifiers**  
-Every delegation action produces a `abi.encode(delegator, delgatee, expiry)` bytehash for reference in validation of delegations after the voting period under [Vote Attestation]() and create provenance for delegation actions.
+Every delegation action produces a `abi.encode(delegator, delgatee, expiry)` bytehash for reference in validation of delegations after the voting period under [Vote Attestation](#vote-attestation) and create provenance for delegation actions.
 
 #### Management
 **Expirations**  
 All delegations are subject to the `MAX_DELEGATION_PERIOD` constraint. This to prevent idle allocation of voting power from delegators that may become unaware to amplified influence or standing of delegates.
 
 **Revocability**  
-
 Revocation by default is the means for delegators to relinquish arrangements and can be excercised as long as the delegate has not excercised that authority in an active proposal. 
 
-In the case of virtualised [Voting Modules](), **revocation provides the ability to cancel delegation available at any time** - even when the underlying voting power has been commited to a proposal - acting as a mediation to secondary market risk presented by time-weighted voting implementations under delegation. 
+In the case of virtualised voting modules, **revocation provides the ability to cancel delegation available at any time** - even when the underlying voting power has been commited to a proposal - acting as a mediation to secondary market risk presented by time-weighted voting implementations under delegation. 
 
 ## Proposal System
 
@@ -151,18 +150,15 @@ A mechanism to contest a pending proposal approved for execution under discretio
 The veto period is only active as long as the timelock's grace period, it does not extend the timelock duration.
 
 ### Vote Attestation
-
-During the timelock delay and veto period, in order for [Virtual Votes]() to be included in the final tally and counted as [Primary Votes](). Delegated votes are indexed by identifiers to validate active arrangements over the course of the voting period not subject to revocation or expiration. After attestation delegations can be managed without infringence, as all attested votes are final.  
+During the timelock delay and veto period, in order for [Virtual Votes](#virtual-votes) to be included in the final tally and counted as [Primary Votes](#primary-votes). Delegated votes are indexed by identifiers to validate active arrangements over the course of the voting period not subject to revocation or expiration. After attestation delegations can be managed without infringence, as all attested votes are final.  
 
 ### Ballots
 
 #### Pretally 
-
-During the voting period for proposals submitted under a [Virtualised]() voting configuration, vote counts are seperated by [Virtual Votes]() and [Primary Votes](). Non-virtualised voting strategies tally all votes as [Primary Votes]().
+During the voting period for proposals submitted under a virtualised voting configuration, vote counts are seperated by virtual and primary votes. Non-virtualised voting strategies tally all votes as primary.
 
 #### Tally 
-
-Under the act of [Vote Attesation]() and subject to [Virtualised]() voting strategies, [Virtual Votes]() are realised as [Primary Votes]() once validated. 
+Under the act of vote attestation and subject to virtualised voting strategies, virtual votes are realised as primary once attested. 
 
 ### Relay Actions
 Relay proposals shift the target proposals call context origin (default timelock) to the governor, this is allow asset transfer of tokens and native balances [that could of previously been deemed as unspendable in Bravo](https://github.com/focaldotorg/governor-delta/issues/4). 
@@ -176,7 +172,7 @@ t_{\mathrm{effective}} = \frac{\sum_i a_i \cdot t_i}{\sum_i a_i}
 ```
 &nbsp;
 
-Each [Lock](#locking) and [Unlock](#unlocking) events reweighs the integral relative to the balance committed the duration specified through `lastUpdateTime`. 
+Each lock or unlock reweighs the integral relative to the balance committed the duration specified through `lastUpdateTime`. 
 
 ```solidity
 // settle the interval held at the prior balance
@@ -186,7 +182,6 @@ s.deltaAmountTime += s.amount * deltaTime;
 ```
 
 ### Depositing
-
 The new amount is added to the balance after settling. It has been held for zero time, so the numerator is unchanged and the average is diluted. Adding 500 to a 1000 balance at 100 days brings it to roughly 66.7 days. Reference the paper for a full deposit example scenario [³](#notes) with included explicit formulas.
 
 ```solidity
@@ -194,19 +189,18 @@ s.deltaAmountTime += s.amount * deltaTime;
 ```
 
 ### Withdrawing
-
-After settling, `deltaAmountTime` is scaled down by the fraction of balance retained, so the average is unchanged. Withdrawing 500 from a 1000 balance at 100 days leaves it at 100 days. Partial exits never cost a holder their standing. This holds while a balance remains, and the paper [³](#notes) covers the full-withdrawal case.
+After settling, `deltaAmountTime` is scaled down by the fraction of balance retained, so the average is unchanged. Withdrawing 500 from a 1000 balance at 100 days leaves it at 100 days. Partial deallocation is not penalised with the paper [³](#notes) covering the full-withdrawal case.
 
 ```solidity
 s.deltaAmountTime = s.deltaAmountTime * (s.amount - amount) / s.amount;
 ```
 
 ## Notes 
+**[1]** An organisation is never the same as it was year on year, a rigid structure not only subjects deployments of Bravo from initially high, to quite low thresholds (quotas) and quorums that can contest rogue capture but can simultaneously effect representation. Failure to adequately calculate sufficient values, additionally leaves an organisation vulnerable to attack with little means for recourse.
 
-**[1]** An organisation is never the same as it was last week, a rigid structure not only subjects deployments of Bravo to rigorous thresholds (quotas) and quorums to contest rogue capture but also erodes participation from barriers to entry. Failure to adequately calculate sufficient values, additionally leaves an organisation vulnerable to attack with little means for recourse.
-
-**[2]** While designed to combat vote-buying, unironically creates the new issue of proposers exercising voting power they may not still retain. Which is a primary subject of the empty voting problem [⁴](#note-4), labelled as a record-date capture attack. An adversary can create a malicious proposal, vote and then continue to relinquish the equivalent economic value on secondary markets, yet still have their weight meaningfully recorded in the [Ballot](#ballots). A problem that would be only be exacerbated if a group of actors colluded together, Delta is not subject to flaw given the omission of the checkpoint system.
+**[2]** While designed to combat vote-buying, unironically creates the new issue of proposers exercising voting power they may not still retain. Which is a primary subject of the empty voting problem [⁴](#notes), labelled as a record-date capture attack. An adversary can create a malicious proposal, vote and then continue to relinquish the equivalent economic value on secondary markets, yet still have their weight meaningfully recorded in the [Ballot](#ballots). A problem that would be only be exacerbated if a group of actors colluded together, Delta is not subject to flaw given the omission of the checkpoint system.
 
 **[3]** Gosling, _Polycentric Voting_ (2026), Focal Research Collective 
 
 **[4]** Hu & Black, _Empty Voting and Hidden (Morphable) Ownership_ (2006), Southern California Law Review
+

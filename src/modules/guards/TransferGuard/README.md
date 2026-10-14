@@ -1,5 +1,5 @@
 ## Transfer Guard 
-A module to budget and limit the flow of assets following the [ERC20 token standard]() with arbitrary spending context.
+A module to budget and limit the flow of assets following the [ERC20 token standard](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/ERC20.sol) with arbitrary spending context.
 
 ### Behaviour 
 On set declaration of asset budget policies, the module iterates a snapshot of context balances before state changes. After proposal execution and state changes, it queries again and calculates the difference in balances. The parameter limit restricts the amount that be spent in one proposal and allowance represents the total budget available. Any expenditures that exceed these parameters results in the proposal to be reverted.
