@@ -133,7 +133,7 @@ contract TenureVotingStrategy is IVotingStrategy, ITimeWeightedVotingStrategy {
       * @notice Admin function to set the tranche configuration 
       * @param config The tranche config array
     **/
-    function _setTranches(Tranche[] memory config) external {
+    function set(Tranche[] memory config) external {
         require(checkTranches(config), "TenureVotingStrategy::checkTranches: invalid config");
         require(msg.sender == address(governor), "TenureVotingStrategy::_setTranches: governor only");
         Tranche[] memory oldTranches = tranches;
