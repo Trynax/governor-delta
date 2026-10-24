@@ -831,14 +831,13 @@ contract GovernorDelta is GovernorStorageV3 {
 
         if (receipt.hasVoted && receipt.delegatee == address(0)) {
             if (reweighVotes) {
-                receipt.votes -= deltaVotes;
                 _subtractVotes(ballot, receipt.support, deltaVotes, 0);
                 deltaVotes = 0;
-            } else if (!reweighVotes || !virtualised) {
+            } else if (!reweighVotes && !virtualised) {
                 receipt.votes  += deltaVotes;
+                receipt.weight += addedWeight;
             }
 
-           receipt.weight += addedWeight;
            _addVotes(ballot, receipt.support, deltaVotes, addedWeight);
         }
 
