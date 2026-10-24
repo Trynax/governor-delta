@@ -828,17 +828,18 @@ contract GovernorDelta is GovernorStorageV3 {
         }
 
         Record storage receipt = proposal.primary.records[record.delegatee];
-        if (receipt.hasVoted && receipt.delegatee == address(0)) {
-            _addVotes(ballot, receipt.support, deltaVotes, addedWeight);
 
+        if (receipt.hasVoted && receipt.delegatee == address(0)) {
             if (reweighVotes) {
                 receipt.votes -= deltaVotes;
-            } else if (!reweighVotes || !virtualised){
+                _subtractVotes(ballot, receipt.support, deltaVotes, 0);
+                deltaVotes = 0;
+            } else if (!reweighVotes || !virtualised) {
                 receipt.votes  += deltaVotes;
-              }
             }
 
            receipt.weight += addedWeight;
+           _addVotes(ballot, receipt.support, deltaVotes, addedWeight);
         }
 
         record.votes = votes;
