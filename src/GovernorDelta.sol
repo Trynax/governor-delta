@@ -807,26 +807,38 @@ contract GovernorDelta is GovernorStorageV3 {
     **/
     function _updateVotes(ProposalV2 storage proposal, Ballot storage ballot, Record storage record, bool virtualized, uint votes, uint weight) internal {
         Voucher storage allowance = proposal.allowances[record.delegatee];
-        uint addedVotes = votes;
+        uint deltaVotes = votes;
         uint addedWeight = weight;
+        bool reweighVotes;
 
         if (record.hasVoted) {
-            require(votes >= record.votes && weight >= record.weight, "GovernorDelta::_updateVotes: voting power decreased");
-            require(votes > record.votes || weight > record.weight, "GovernorDelta::_updateVotes: delegation already committed");
-            addedVotes = votes - record.votes;
+            require(weight > record.weight, "GovernorDelta::_updateVotes: voting weight unchanged");
             addedWeight = weight - record.weight;
-        }
 
-        allowance.votes += addedVotes;
-        allowance.weight += addedWeight;
+            if (votes > record.votes) { 
+              deltaVotes = votes - record.votes;
+              allowance.votes += deltaVotes;
+            } else {
+              deltaVotes = record.votes - votes;
+              allowance.votes -= deltaVotes;
+              reweighVotes = true;
+            }
+            
+            allowance.weight += addedWeight;
+        }
 
         Record storage receipt = proposal.primary.records[record.delegatee];
         if (receipt.hasVoted && receipt.delegatee == address(0)) {
-            _addVotes(ballot, receipt.support, addedVotes, addedWeight);
-            if (!virtualized) {
-                receipt.votes += addedVotes;
-                receipt.weight += addedWeight;
+            _addVotes(ballot, receipt.support, deltaVotes, addedWeight);
+
+            if (reweighVotes) {
+                receipt.votes -= deltaVotes;
+            } else if (!reweighVotes || !virtualised){
+                receipt.votes  += deltaVotes;
+              }
             }
+
+           receipt.weight += addedWeight;
         }
 
         record.votes = votes;
