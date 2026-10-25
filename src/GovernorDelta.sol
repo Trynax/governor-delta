@@ -677,39 +677,39 @@ contract GovernorDelta is GovernorStorageV3 {
     function _logVote(address voter, uint proposalId, uint8 support, bool veto) internal returns (uint) {
         Stake storage s = stakes[voter];
         ProposalV2 storage proposal = proposals[proposalId];
+        (uint weight, uint votes) = [ s.amount, s.amount ];
         uint resolveTs = veto ? proposal.eta : proposal.endTime;
-        uint votes = s.amount;
-        if (!veto && s.amount > 0) votes = predictedPower(voter, resolveTs);
-        uint weight = s.amount;
-
-        if (veto) {
-            s.unlockTime = resolveTs;
-            return _recordVote(voter, support, proposal.veto, votes, weight, false);
-        }
-
-        Record storage receipt = proposal.primary.records[voter];
-        require(receipt.delegatee == address(0), "GovernorDelta::_logVote: delegation committed");
-
-        bool virtualized = votingModule.virtualized();
-        Ballot storage allowanceBallot = virtualized ? proposal.virtualized : proposal.primary;
-        Voucher storage allowance = proposal.allowances[voter];
-
-        if (!virtualized) {
-            votes += allowance.votes;
-            weight += allowance.weight;
-            allowance.castVersion++;
-            s.unlockTime = resolveTs;
-            return _recordVote(voter, support, proposal.primary, votes, weight, true);
-        }
-
-        require(!proposal.virtualized.records[voter].hasVoted, "GovernorDelta::_logVote: delegation committed");
-        bool revising = receipt.hasVoted;
-        uint8 previousSupport = receipt.support;
-        uint recordedVotes = _recordVote(voter, support, proposal.primary, votes, weight, true);
-        _recordAllowance(support, allowanceBallot, allowance, revising, previousSupport);
+        uint power = predictedPower(voter, resolveTs);
+        require(power > 0 && weight > 0, "GovernorDelta:::_logVote:: no voting power");
         s.unlockTime = resolveTs;
 
-        return recordedVotes;
+        if (veto) {
+            return _recordVote(voter, support, proposal.veto, votes, weight, false);
+        } else {
+            votes = power;
+            Record storage receipt = proposal.primary.records[voter];
+            require(receipt.delegatee == address(0), "GovernorDelta::_logVote: delegation committed");
+
+            bool virtualized = votingModule.virtualized();
+            Ballot storage allowanceBallot = virtualized ? proposal.virtualized : proposal.primary;
+            Voucher storage allowance = proposal.allowances[voter];
+
+            if (!virtualized) {
+              votes += allowance.votes;
+              weight += allowance.weight;
+              allowance.castVersion++;
+              return _recordVote(voter, support, proposal.primary, votes, weight, true);
+            } else {
+              require(!proposal.virtualized.records[voter].hasVoted, "GovernorDelta::_logVote: delegation committed");
+            }
+
+            bool revising = receipt.hasVoted;
+            uint8 previousSupport = receipt.support;
+            uint recordedVotes = _recordVote(voter, support, proposal.primary, votes, weight, true);
+            _recordAllowance(support, allowanceBallot, allowance, revising, previousSupport);
+
+            return recordedVotes;
+        } 
     }
 
     /**
