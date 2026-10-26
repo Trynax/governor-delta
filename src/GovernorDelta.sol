@@ -12,12 +12,6 @@ contract GovernorDelta is GovernorStorageV3 {
     /// @notice The name of this contract
     string public constant name = "Governor Delta";
 
-    /// @notice State snapshot opcode 
-    uint8 constant OP_READ = 0;
-
-    /// @notice State compare opcode
-    uint8 constant OP_DIFF = 1;
-
     /// @notice The minimum setable voting period
     uint public constant MIN_VOTING_PERIOD = 3 days;
 
@@ -85,9 +79,9 @@ contract GovernorDelta is GovernorStorageV3 {
       * @param proposalId The associated proposal identifier
     **/
     modifier guarded(address context, uint proposalId) {
-        reduceState(OP_READ, context, proposalId);
+        reduceState(0, context, proposalId);
         _;
-        reduceState(OP_DIFF, context, proposalId);
+        reduceState(1, context, proposalId);
     }
 
     /**
@@ -346,8 +340,8 @@ contract GovernorDelta is GovernorStorageV3 {
       * @param expiry The timestamp at which the delegation expires
       * @return id The delegation identifier 
     **/
-    function delegate(address delegatee, uint expiry) external returns (bytes memory id) {
-        return _delegate(msg.sender, delegatee, expiry);
+    function delegate(address delegate, uint expiry) external returns (bytes memory id) {
+        return _delegate(msg.sender, delegate, expiry);
     }
 
     /**
@@ -525,12 +519,12 @@ contract GovernorDelta is GovernorStorageV3 {
         require(state(proposalId) == ProposalState.Active, "GovernorDelta::commitVote: voting is closed");
         require(checkDelegation(delegateId), "GovernorDelta::commitVote: delegation invalid");
 
-        (address delegator, address delegatee,) = abi.decode(delegateId, (address, address, uint256));
-        require(delegatedPower(delegatee, delegator) > 0, "GovernorDelta::commitVote: no delegated power");
+        (address delegator, address delegate,) = abi.decode(delegateId, (address, address, uint256));
+        require(delegatedPower(delegate, delegator) > 0, "GovernorDelta::commitVote: no delegated power");
 
-        uint votes = _commitVote(delegator, delegatee, proposalId);
+        uint votes = _commitVote(delegator, delegate, proposalId);
 
-        emit VoteCommitted(proposalId, delegator, delegatee, votes, keccak256(delegateId));
+        emit VoteCommitted(proposalId, delegator, delegate, votes, keccak256(delegateId));
     }
 
     /**
@@ -588,7 +582,7 @@ contract GovernorDelta is GovernorStorageV3 {
 
     /**
       * @notice Delegates voting power by EIP-712 signature
-      * @param delegatee The address to delegate voting power to
+      * @param delegate The address to delegate voting power to
       * @param expiry The timestamp at which the delegation expires
       * @param nonce The contract nonce required to match the signatory state
       * @param sigExpiry The timestamp at which the signature expires
@@ -597,8 +591,8 @@ contract GovernorDelta is GovernorStorageV3 {
       * @param s Half of the ECDSA signature pair
       * @return id The delegation identifier
     **/
-    function delegateBySig(address delegatee, uint expiry, uint nonce, uint sigExpiry, uint8 v, bytes32 r, bytes32 s) external returns (bytes memory id) {
-        bytes32 structHash = keccak256(abi.encode(DELEGATION_TYPEHASH, delegatee, expiry, nonce, sigExpiry));
+    function delegateBySig(address delegate, uint expiry, uint nonce, uint sigExpiry, uint8 v, bytes32 r, bytes32 s) external returns (bytes memory id) {
+        bytes32 structHash = keccak256(abi.encode(DELEGATION_TYPEHASH, delegate, expiry, nonce, sigExpiry));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
         address signatory = ecrecover(digest, v, r, s);
         require(signatory != address(0), "GovernorDelta::delegateBySig: invalid signature");
@@ -607,12 +601,12 @@ contract GovernorDelta is GovernorStorageV3 {
         require(block.timestamp < sigExpiry, "GovernorDelta::delegateBySig: signature expired");
         nonces[signatory] = currentNonce + 1;
 
-        return _delegate(signatory, delegatee, expiry);
+        return _delegate(signatory, delegate, expiry);
     }
 
     /**
       * @notice Revokes an active delegation by EIP-712 signature
-      * @param delegatee The delegatee expected to be active at execution time
+      * @param delegate The delegate expected to be active at execution time
       * @param expiry The delegation expiry expected to be active at execution time
       * @param nonce The contract nonce required to match the signatory state
       * @param sigExpiry The timestamp at which the signature expires
@@ -621,8 +615,8 @@ contract GovernorDelta is GovernorStorageV3 {
       * @param s Half of the ECDSA signature pair
       * @return id The revoked delegation identifier
     **/
-    function revokeBySig(address delegatee, uint expiry, uint nonce, uint sigExpiry, uint8 v, bytes32 r, bytes32 s) external returns (bytes memory id) {
-        bytes32 structHash = keccak256(abi.encode(REVOCATION_TYPEHASH, delegatee, expiry, nonce, sigExpiry));
+    function revokeBySig(address delegate, uint expiry, uint nonce, uint sigExpiry, uint8 v, bytes32 r, bytes32 s) external returns (bytes memory id) {
+        bytes32 structHash = keccak256(abi.encode(REVOCATION_TYPEHASH, delegate, expiry, nonce, sigExpiry));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
         address signatory = ecrecover(digest, v, r, s);
         require(signatory != address(0), "GovernorDelta::revokeBySig: invalid signature");
@@ -649,21 +643,21 @@ contract GovernorDelta is GovernorStorageV3 {
 
         for (uint i = 0; i < delegateIds.length; i++) {
             require(checkDelegation(delegateIds[i]), "GovernorDelta::batchAttestVotes: delegation invalid");
-            (address delegator, address delegatee,) = abi.decode(delegateIds[i], (address, address, uint));
+            (address delegator, address delegate,) = abi.decode(delegateIds[i], (address, address, uint));
             Record storage record = proposal.virtualized.records[delegator];
             Record storage receipt = proposal.primary.records[delegator];
-            Record storage delegateeReceipt = proposal.primary.records[delegatee];
+            Record storage delegateReceipt = proposal.primary.records[delegate];
             require(record.hasVoted && record.delegatee == delegatee, "GovernorDelta::batchAttestVotes: delegation uncommitted");
-            require(delegateeReceipt.hasVoted && delegateeReceipt.delegatee == address(0), "GovernorDelta::batchAttestVotes: delegatee vote missing");
+            require(delegateReceipt.hasVoted && delegateReceipt.delegatee == address(0), "GovernorDelta::batchAttestVotes: delegatee vote missing");
             require(!receipt.hasVoted, "GovernorDelta::batchAttestVotes: delegation already attested");
-            _addVotes(proposal.primary, delegateeReceipt.support, record.votes, record.weight);
+            _addVotes(proposal.primary, delegateReceipt.support, record.votes, record.weight);
             receipt.hasVoted = true;
-            receipt.support = delegateeReceipt.support;
+            receipt.support = delegateReceipt.support;
             receipt.votes = record.votes;
             receipt.weight = record.weight;
             receipt.delegatee = delegatee;
 
-            emit VoteAttested(proposalId, delegator, delegatee, record.votes, keccak256(delegateIds[i]));
+            emit VoteAttested(proposalId, delegator, delegate, record.votes, keccak256(delegateIds[i]));
         }
     }
 
@@ -709,10 +703,10 @@ contract GovernorDelta is GovernorStorageV3 {
     /**
       * @notice Commits a delegator's voting power to a delegatee allowance
       * @param delegator The address whose voting power is being committed
-      * @param delegatee The address receiving the proposal allowance
+      * @param delegate The address receiving the proposal allowance
       * @param proposalId The id of the proposal to commit voting power to
     **/
-    function _commitVote(address delegator, address delegatee, uint proposalId) internal returns (uint) {
+    function _commitVote(address delegator, address delegate, uint proposalId) internal returns (uint) {
         ProposalV2 storage proposal = proposals[proposalId];
         bool virtualized = votingModule.virtualized();
         Ballot storage ballot = virtualized ? proposal.virtualized : proposal.primary;
@@ -727,13 +721,13 @@ contract GovernorDelta is GovernorStorageV3 {
 
         if (record.hasVoted) {
             require(record.delegatee != address(0), "GovernorDelta::_commitVote: voter already voted");
-            if (record.delegatee == delegatee) {
+            if (record.delegatee == delegate) {
                 _updateVotes(proposal, ballot, record, virtualized, votes, weight);
             } else {
-                _redirectVotes(proposal, ballot, record, virtualized, delegatee, votes, weight);
+                _redirectVotes(proposal, ballot, record, virtualized, delegate, votes, weight);
             }
         } else {
-            record.delegatee = delegatee;
+            record.delegatee = delegate;
             _updateVotes(proposal, ballot, record, virtualized, votes, weight);
             record.hasVoted = true;
         }
@@ -754,13 +748,12 @@ contract GovernorDelta is GovernorStorageV3 {
     function _recordVote(address voter, uint8 support, Ballot storage ballot, uint votes, uint weight, bool revisable) internal returns (uint) {
         Record storage record = ballot.records[voter]; 
         require(support <= 2, "GovernorDelta::_recordVote: invalid vote type");
+        require(record.delegatee == address(0), "GovernorDelta::_recordVote: delegation committed");
 
         if (record.hasVoted) {
             require(revisable, "GovernorDelta::_recordVote: vote not revisable");
-            require(record.delegatee == address(0), "GovernorDelta::_recordVote: delegation committed");
             _rebalanceVotes(ballot, record.support, record.votes, record.weight, support, votes, weight);
         } else {
-            require(record.delegatee == address(0), "GovernorDelta::_recordVote: delegation committed");
             _addVotes(ballot, support, votes, weight);
         }
 
@@ -828,11 +821,11 @@ contract GovernorDelta is GovernorStorageV3 {
       * @param ballot The ballot containing the allowances
       * @param record The delegator's commitment record
       * @param virtualized Whether the allowances are recorded in the virtualized ballot
-      * @param delegatee The new delegatee
+      * @param delegate The new target delegation address
       * @param votes The delegator's current voting power
       * @param weight The delegator's current voting weight
     **/
-    function _redirectVotes(ProposalV2 storage proposal, Ballot storage ballot, Record storage record, bool virtualized, address delegatee, uint votes, uint weight) internal {
+    function _redirectVotes(ProposalV2 storage proposal, Ballot storage ballot, Record storage record, bool virtualized, address delegate, uint votes, uint weight) internal {
         Voucher storage previousAllowance = proposal.allowances[record.delegatee];
         Record storage previousReceipt = proposal.primary.records[record.delegatee];
 
@@ -847,12 +840,12 @@ contract GovernorDelta is GovernorStorageV3 {
         previousAllowance.votes -= record.votes;
         previousAllowance.weight -= record.weight;
 
-        record.delegatee = delegatee;
-        Voucher storage allowance = proposal.allowances[delegatee];
+        record.delegatee = delegate;
+        Voucher storage allowance = proposal.allowances[delegate];
         allowance.votes += votes;
         allowance.weight += weight;
 
-        Record storage receipt = proposal.primary.records[delegatee];
+        Record storage receipt = proposal.primary.records[delegate];
         if (receipt.hasVoted && receipt.delegatee == address(0)) {
             _addVotes(ballot, receipt.support, votes, weight);
             if (!virtualized) {
