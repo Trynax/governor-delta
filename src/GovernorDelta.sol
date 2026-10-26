@@ -698,17 +698,12 @@ contract GovernorDelta is GovernorStorageV3 {
               votes += allowance.votes;
               weight += allowance.weight;
               allowance.castVersion++;
-              return _recordVote(voter, support, proposal.primary, votes, weight, true);
             } else {
               require(!proposal.virtualized.records[voter].hasVoted, "GovernorDelta::_logVote: delegation committed");
+              _recordAllowance(receipt.support, allowanceBallot, allowance, revising, receipt.hasVoted);
             }
-
-            bool revising = receipt.hasVoted;
-            uint8 previousSupport = receipt.support;
-            uint recordedVotes = _recordVote(voter, support, proposal.primary, votes, weight, true);
-            _recordAllowance(support, allowanceBallot, allowance, revising, previousSupport);
-
-            return recordedVotes;
+  
+            return _recordVote(voter, support, proposal.primary, votes, weight, true);
         } 
     }
 
