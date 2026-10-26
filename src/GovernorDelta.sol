@@ -1,9 +1,9 @@
 pragma solidity ^0.8.10;
 
 import "@interfaces/IGovernorAlpha.sol";
-import "@strategies/WeightedVotingStrategy.sol";
+import "@voting/WeightedVotingStrategy/WeightedVotingStrategy.sol";
 import "@root/GovernorStorageV3.sol";
-import "@guards/StakingGuard.sol";
+import "@guards/StakingGuard/StakingGuard.sol";
 
 /** FOCAL RESEARCH COLLECTIVE © 2026 **/
 
@@ -336,7 +336,7 @@ contract GovernorDelta is GovernorStorageV3 {
 
     /**
       * @notice Delegates voting power to another account
-      * @param delegatee The address to delegate voting power to
+      * @param delegate The address to delegate voting power to
       * @param expiry The timestamp at which the delegation expires
       * @return id The delegation identifier 
     **/
@@ -625,7 +625,7 @@ contract GovernorDelta is GovernorStorageV3 {
         require(block.timestamp < sigExpiry, "GovernorDelta::revokeBySig: signature expired");
         nonces[signatory] = currentNonce + 1;
 
-        return _revoke(signatory, delegatee, expiry);
+        return _revoke(signatory, delegate, expiry);
     }
 
     /**
@@ -647,7 +647,7 @@ contract GovernorDelta is GovernorStorageV3 {
             Record storage record = proposal.virtualized.records[delegator];
             Record storage receipt = proposal.primary.records[delegator];
             Record storage delegateReceipt = proposal.primary.records[delegate];
-            require(record.hasVoted && record.delegatee == delegatee, "GovernorDelta::batchAttestVotes: delegation uncommitted");
+            require(record.hasVoted && record.delegatee == delegate, "GovernorDelta::batchAttestVotes: delegation uncommitted");
             require(delegateReceipt.hasVoted && delegateReceipt.delegatee == address(0), "GovernorDelta::batchAttestVotes: delegatee vote missing");
             require(!receipt.hasVoted, "GovernorDelta::batchAttestVotes: delegation already attested");
             _addVotes(proposal.primary, delegateReceipt.support, record.votes, record.weight);
@@ -655,7 +655,7 @@ contract GovernorDelta is GovernorStorageV3 {
             receipt.support = delegateReceipt.support;
             receipt.votes = record.votes;
             receipt.weight = record.weight;
-            receipt.delegatee = delegatee;
+            receipt.delegatee = delegate;
 
             emit VoteAttested(proposalId, delegator, delegate, record.votes, keccak256(delegateIds[i]));
         }
@@ -671,15 +671,16 @@ contract GovernorDelta is GovernorStorageV3 {
     function _logVote(address voter, uint proposalId, uint8 support, bool veto) internal returns (uint) {
         Stake storage s = stakes[voter];
         ProposalV2 storage proposal = proposals[proposalId];
-        (uint weight, uint votes) = [ s.amount, s.amount ];
+        uint weight = s.amount;
+        uint votes = s.amount;
         uint resolveTs = veto ? proposal.eta : proposal.endTime;
-        uint power = predictedPower(voter, resolveTs);
-        require(power > 0 && weight > 0, "GovernorDelta:::_logVote:: no voting power");
         s.unlockTime = resolveTs;
 
         if (veto) {
+            require(weight > 0, "GovernorDelta::_logVote: no voting power");
             return _recordVote(voter, support, proposal.veto, votes, weight, false);
         } else {
+            uint power = weight > 0 ? predictedPower(voter, resolveTs) : 0;
             votes = power;
             Record storage receipt = proposal.primary.records[voter];
             require(receipt.delegatee == address(0), "GovernorDelta::_logVote: delegation committed");
@@ -687,6 +688,7 @@ contract GovernorDelta is GovernorStorageV3 {
             bool virtualized = votingModule.virtualized();
             Ballot storage ballot = virtualized ? proposal.virtualized : proposal.primary;
             Voucher storage allowance = proposal.allowances[voter];
+            require(power > 0 || allowance.votes > 0, "GovernorDelta::_logVote: no voting power");
             allowance.castVersion++;
 
             if (!virtualized) {
@@ -694,6 +696,11 @@ contract GovernorDelta is GovernorStorageV3 {
               weight += allowance.weight;
             } else {
               require(!proposal.virtualized.records[voter].hasVoted, "GovernorDelta::_logVote: delegation committed");
+              if (receipt.hasVoted) {
+                _rebalanceVotes(ballot, receipt.support, allowance.votes, allowance.weight, support, allowance.votes, allowance.weight);
+              } else {
+                _addVotes(ballot, support, allowance.votes, allowance.weight);
+              }
             } 
 
             return _recordVote(voter, support, proposal.primary, votes, weight, true);
@@ -786,14 +793,14 @@ contract GovernorDelta is GovernorStorageV3 {
 
             if (votes > record.votes) { 
               deltaVotes = votes - record.votes;
-              allowance.votes += deltaVotes;
             } else {
               deltaVotes = record.votes - votes;
-              allowance.votes -= deltaVotes;
               reweighVotes = true;
             }
-            
-            allowance.weight += addedWeight;
+
+            _amendVotes(allowance, record.votes, record.weight, votes, weight);
+        } else {
+            _creditVotes(allowance, votes, weight);
         }
 
         Record storage receipt = proposal.primary.records[record.delegatee];
@@ -802,7 +809,7 @@ contract GovernorDelta is GovernorStorageV3 {
             if (reweighVotes) {
                 _subtractVotes(ballot, receipt.support, deltaVotes, 0);
                 deltaVotes = 0;
-            } else if (!reweighVotes && !virtualised) {
+            } else if (!reweighVotes && !virtualized) {
                 receipt.votes  += deltaVotes;
                 receipt.weight += addedWeight;
             }
@@ -837,13 +844,11 @@ contract GovernorDelta is GovernorStorageV3 {
             }
         }
 
-        previousAllowance.votes -= record.votes;
-        previousAllowance.weight -= record.weight;
+        _deductVotes(previousAllowance, record.votes, record.weight);
 
         record.delegatee = delegate;
         Voucher storage allowance = proposal.allowances[delegate];
-        allowance.votes += votes;
-        allowance.weight += weight;
+        _creditVotes(allowance, votes, weight);
 
         Record storage receipt = proposal.primary.records[delegate];
         if (receipt.hasVoted && receipt.delegatee == address(0)) {
@@ -857,6 +862,24 @@ contract GovernorDelta is GovernorStorageV3 {
         record.votes = votes;
         record.weight = weight;
         record.commitVersion++;
+    }
+
+    /// @notice Replaces one contribution in a delegatee's proposal allowance
+    function _amendVotes(Voucher storage allowance, uint previousVotes, uint previousWeight, uint votes, uint weight) internal {
+        _deductVotes(allowance, previousVotes, previousWeight);
+        _creditVotes(allowance, votes, weight);
+    }
+
+    /// @notice Adds voting power to a delegatee's proposal allowance
+    function _creditVotes(Voucher storage allowance, uint votes, uint weight) internal {
+        allowance.votes += votes;
+        allowance.weight += weight;
+    }
+
+    /// @notice Removes voting power from a delegatee's proposal allowance
+    function _deductVotes(Voucher storage allowance, uint votes, uint weight) internal {
+        allowance.votes -= votes;
+        allowance.weight -= weight;
     }
 
     /**
@@ -1081,9 +1104,9 @@ contract GovernorDelta is GovernorStorageV3 {
         address[] memory guards = proposalConfig[tier].guards;
 
         for (uint8 i = 0; i < guards.length; i++) {
-            if (slot == OP_READ) {
+            if (slot == 0) {
                 IProposalGuard(guards[i]).record(context, proposalId);
-            } else if (slot == OP_DIFF) {
+            } else if (slot == 1) {
                 IProposalGuard(guards[i]).compare(context, proposalId);
             }
         }

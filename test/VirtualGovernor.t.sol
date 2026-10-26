@@ -1,7 +1,7 @@
 pragma solidity ^0.8.13;
 
 import { ITimeWeightedVotingStrategy } from "@interfaces/ITimeWeightedVotingStrategy.sol";
-import { TenureVotingStrategy } from "@strategies/TenureVotingStrategy.sol";
+import { TenureVotingStrategy } from "@voting/TenureVotingStrategy/TenureVotingStrategy.sol";
 import { GovernorStorageV3 } from "@root/GovernorStorageV3.sol";
 import { GovernorAdmin } from "./mock/GovernorAdmin.sol";
 import { BaseGovernorTest } from "./BaseGovernor.t.sol";
@@ -59,7 +59,17 @@ contract VirtualGovernorTest is BaseGovernorTest {
     }
 
     function testVirtualDelegatedVoteRevision() public {
-        uint delegationExpiry = block.timestamp + 7 days;
+        (uint stakeAmount, uint deltaAmountTime, uint lastUpdateTime) = governor.stake(DELEGATOR_PRIMARY);
+        (uint trancheSize,) = strategy.tranches(3);
+        uint currentTime = vm.getBlockTimestamp();
+        uint effectiveTime = deltaAmountTime / stakeAmount + currentTime - lastUpdateTime;
+        uint scenarioStart = currentTime + trancheSize - effectiveTime - DEFAULT_VOTING_DELAY - DEFAULT_VOTING_PERIOD;
+        uint votingTime = scenarioStart + DEFAULT_VOTING_DELAY + 1;
+        uint queueTime = scenarioStart + DEFAULT_VOTING_DELAY + DEFAULT_VOTING_PERIOD + 1;
+        uint delegationExpiry = scenarioStart + 7 days;
+
+        // Place the delegator just above the 180-day tranche at proposal end.
+        vm.warp(scenarioStart);
 
         /* ------PRIMARY-DELEGATOR------- */
         vm.startPrank(DELEGATOR_PRIMARY);
@@ -70,7 +80,7 @@ contract VirtualGovernorTest is BaseGovernorTest {
         /* ------PRIMARY-DELEGATEE------- */
         vm.startPrank(DELEGATEE_PRIMARY);
         uint proposalId = pushMockProposal(0);
-        vm.warp(block.timestamp + DEFAULT_VOTING_DELAY + 1);
+        vm.warp(votingTime);
         vm.stopPrank();
         /* -------------------------------- */
 
@@ -91,6 +101,8 @@ contract VirtualGovernorTest is BaseGovernorTest {
         (uint firstVirtualAgainstVotes, uint firstVirtualForVotes,) = governor.getVirtualTally(proposalId);
         require(firstVirtualAgainstVotes == 0);
         require(firstVirtualForVotes > 0);
+        (uint firstAllowanceVotes, uint firstAllowanceWeight,) = governor.getAllowance(proposalId, DELEGATEE_PRIMARY);
+        require(firstVirtualForVotes == firstAllowanceVotes);
 
         vm.prank(DELEGATEE_PRIMARY);
         governor.castVote(proposalId, 1, "");
@@ -105,8 +117,9 @@ contract VirtualGovernorTest is BaseGovernorTest {
 
         /* ------PRIMARY-DELEGATOR------- */
         vm.startPrank(DELEGATOR_PRIMARY);
-        governorToken.mint(DELEGATOR_PRIMARY, STAKEHOLDER_MINOR);
-        approveAndLock(STAKEHOLDER_MINOR);
+        uint addedWeight = STAKEHOLDER_MINOR / 10;
+        governorToken.mint(DELEGATOR_PRIMARY, addedWeight);
+        approveAndLock(addedWeight);
         vm.stopPrank();
         /* -------------------------------- */
 
@@ -115,7 +128,10 @@ contract VirtualGovernorTest is BaseGovernorTest {
         require(secondCommitRecords[1].commitVersion == 2);
 
         (, uint updatedVirtualForVotes,) = governor.getVirtualTally(proposalId);
-        require(updatedVirtualForVotes > firstVirtualForVotes);
+        (uint updatedAllowanceVotes, uint updatedAllowanceWeight,) = governor.getAllowance(proposalId, DELEGATEE_PRIMARY);
+        require(updatedAllowanceWeight == firstAllowanceWeight + addedWeight);
+        require(updatedAllowanceVotes < firstAllowanceVotes);
+        require(updatedVirtualForVotes == updatedAllowanceVotes);
 
         /* ------PRIMARY-DELEGATEE------- */
         vm.prank(DELEGATEE_PRIMARY);
@@ -140,9 +156,9 @@ contract VirtualGovernorTest is BaseGovernorTest {
         vm.stopPrank();
         /* -------------------------------- */
 
-        vm.warp(block.timestamp + DEFAULT_VOTING_PERIOD + 1);
+        vm.warp(queueTime);
         governor.queue(proposalId);
-        vm.warp(block.timestamp + DEFAULT_TIMELOCK_DELAY + 1);
+        vm.warp(queueTime + DEFAULT_TIMELOCK_DELAY + 1);
 
         bytes[] memory delegateIds = new bytes[](1);
         delegateIds[0] = abi.encode(DELEGATOR_PRIMARY, DELEGATEE_PRIMARY, delegationExpiry);
@@ -169,6 +185,10 @@ contract VirtualGovernorTest is BaseGovernorTest {
 
         vm.warp(block.timestamp + DEFAULT_VOTING_DELAY + 1);
 
+        commitDelegation(proposalId, DELEGATOR_PRIMARY, delegatee, delegationExpiry);
+        (, uint uncastVirtualForVotes,) = governor.getVirtualTally(proposalId);
+        require(uncastVirtualForVotes == 0);
+
         /* ------UNSTAKED-DELEGATEE------- */
         vm.prank(delegatee);
         governor.castVote(proposalId, 1, "");
@@ -179,7 +199,6 @@ contract VirtualGovernorTest is BaseGovernorTest {
         require(delegateeRecords[0].votes == 0);
         require(delegateeRecords[0].weight == 0);
 
-        commitDelegation(proposalId, DELEGATOR_PRIMARY, delegatee, delegationExpiry);
         (, uint committedVirtualForVotes,) = governor.getVirtualTally(proposalId);
         require(committedVirtualForVotes > 0);
 
@@ -272,6 +291,11 @@ contract VirtualGovernorTest is BaseGovernorTest {
         (, uint primaryVirtualForVotes,) = governor.getVirtualTally(proposalId);
         require(primaryVirtualForVotes > 0);
 
+        /* ------SECONDARY-DELEGATEE------- */
+        vm.prank(DELEGATEE_SECONDARY);
+        governor.castVote(proposalId, 0, "");
+        /* -------------------------------- */
+
         /* ------PRIMARY-DELEGATOR------- */
         vm.prank(DELEGATOR_PRIMARY);
         governor.revoke();
@@ -291,17 +315,12 @@ contract VirtualGovernorTest is BaseGovernorTest {
         require(redirectedRecords[1].commitVersion == 2);
 
         (uint redirectedVirtualAgainstVotes, uint redirectedVirtualForVotes,) = governor.getVirtualTally(proposalId);
-        require(redirectedVirtualAgainstVotes == 0);
+        require(redirectedVirtualAgainstVotes == primaryVirtualForVotes);
         require(redirectedVirtualForVotes == 0);
-
-        /* ------SECONDARY-DELEGATEE------- */
-        vm.prank(DELEGATEE_SECONDARY);
-        governor.castVote(proposalId, 0, "");
-        /* -------------------------------- */
-
-        (uint secondaryVirtualAgainstVotes, uint secondaryVirtualForVotes,) = governor.getVirtualTally(proposalId);
-        require(secondaryVirtualAgainstVotes == primaryVirtualForVotes);
-        require(secondaryVirtualForVotes == 0);
+        (uint oldAllowanceVotes,,) = governor.getAllowance(proposalId, DELEGATEE_PRIMARY);
+        (uint newAllowanceVotes,,) = governor.getAllowance(proposalId, DELEGATEE_SECONDARY);
+        require(oldAllowanceVotes == 0);
+        require(newAllowanceVotes == primaryVirtualForVotes);
 
         /* ------ALPHA-STAKEHOLDER------- */
         vm.prank(STAKEHOLDER_ALPHA);
