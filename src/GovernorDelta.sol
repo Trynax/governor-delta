@@ -691,18 +691,17 @@ contract GovernorDelta is GovernorStorageV3 {
             require(receipt.delegatee == address(0), "GovernorDelta::_logVote: delegation committed");
 
             bool virtualized = votingModule.virtualized();
-            Ballot storage allowanceBallot = virtualized ? proposal.virtualized : proposal.primary;
+            Ballot storage ballot = virtualized ? proposal.virtualized : proposal.primary;
             Voucher storage allowance = proposal.allowances[voter];
+            allowance.castVersion++;
 
             if (!virtualized) {
               votes += allowance.votes;
               weight += allowance.weight;
-              allowance.castVersion++;
             } else {
               require(!proposal.virtualized.records[voter].hasVoted, "GovernorDelta::_logVote: delegation committed");
-              _recordAllowance(receipt.support, allowanceBallot, allowance, revising, receipt.hasVoted);
-            }
-  
+            } 
+
             return _recordVote(voter, support, proposal.primary, votes, weight, true);
         } 
     }
@@ -757,7 +756,7 @@ contract GovernorDelta is GovernorStorageV3 {
         require(support <= 2, "GovernorDelta::_recordVote: invalid vote type");
 
         if (record.hasVoted) {
-            require(revisable, "GovernorDelta::_recordVote: voter already voted");
+            require(revisable, "GovernorDelta::_recordVote: vote not revisable");
             require(record.delegatee == address(0), "GovernorDelta::_recordVote: delegation committed");
             _rebalanceVotes(ballot, record.support, record.votes, record.weight, support, votes, weight);
         } else {
@@ -771,24 +770,6 @@ contract GovernorDelta is GovernorStorageV3 {
         record.votes = votes;
 
         return votes;
-    }
-
-    /**
-      * @notice Records a delegatee allowance in its selected ballot
-      * @param support The support value for the allowance
-      * @param ballot The ballot containing the allowance
-      * @param allowance The delegatee allowance being cast
-      * @param revising Whether the delegatee has already cast on the proposal
-      * @param previousSupport The delegatee's prior support value
-    **/
-    function _recordAllowance(uint8 support, Ballot storage ballot, Voucher storage allowance, bool revising, uint8 previousSupport) internal {
-        if (revising) {
-            _rebalanceVotes(ballot, previousSupport, allowance.votes, allowance.weight, support, allowance.votes, allowance.weight);
-        } else {
-            _addVotes(ballot, support, allowance.votes, allowance.weight);
-        }
-
-        allowance.castVersion++;
     }
 
     /**
